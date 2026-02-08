@@ -1,9 +1,9 @@
 # app.py
 import streamlit as st
 import pandas as pd
-import joblib
 import matplotlib.pyplot as plt
-import os
+
+from train_model import train_model
 
 # ---------- PAGE SETUP ----------
 st.set_page_config(
@@ -12,23 +12,18 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---------- LOAD MODEL SAFELY ----------
+# ---------- LOAD / TRAIN MODEL ----------
 @st.cache_resource
 def load_models():
-    model = joblib.load("models/hydroponics_model.pkl")
-    le_plant = joblib.load("models/plant_encoder.pkl")
-    le_stage = joblib.load("models/stage_encoder.pkl")
-    return model, le_plant, le_stage
-
-if not os.path.exists("models/hydroponics_model.pkl"):
-    st.error("⚠️ Model files not found! Please run `train_model.py` first.")
-    st.stop()
+    return train_model()
 
 model, le_plant, le_stage = load_models()
 
 # ---------- HEADER ----------
 st.title("🌿 Smart Hydroponic Nutrient & Cultivation Predictor")
-st.caption("Predict optimal cultivation days and nutrient needs based on environmental and crop parameters.")
+st.caption(
+    "Predict optimal cultivation days and nutrient needs based on environmental and crop parameters."
+)
 
 # ---------- INPUT SECTION ----------
 st.header("🌾 Input Parameters")
@@ -43,20 +38,32 @@ with col1:
 with col2:
     temperature = st.slider("Temperature (°C)", 22, 38, 28)
     humidity = st.slider("Humidity (%)", 40, 90, 65)
-    light_intensity = st.number_input("Light Intensity (lux)", min_value=5000, max_value=40000, step=1000)
+    light_intensity = st.number_input(
+        "Light Intensity (lux)", min_value=5000, max_value=40000, step=1000
+    )
 
 st.markdown("---")
 
 # ---------- PREDICTION ----------
 if st.button("🔍 Predict Results"):
-    input_data = pd.DataFrame([[
-        temperature,
-        humidity,
-        light_intensity,
-        plant_count,
-        le_stage.transform([growth_stage])[0],
-        le_plant.transform([plant_type])[0]
-    ]], columns=["Temperature", "Humidity", "Light_Intensity", "Plant_Count", "Growth_Stage", "Plant_Type"])
+    input_data = pd.DataFrame(
+        [[
+            temperature,
+            humidity,
+            light_intensity,
+            plant_count,
+            le_stage.transform([growth_stage])[0],
+            le_plant.transform([plant_type])[0]
+        ]],
+        columns=[
+            "Temperature",
+            "Humidity",
+            "Light_Intensity",
+            "Plant_Count",
+            "Growth_Stage",
+            "Plant_Type"
+        ]
+    )
 
     prediction = model.predict(input_data)[0]
 
@@ -66,50 +73,52 @@ if st.button("🔍 Predict Results"):
     col_a, col_b = st.columns(2)
 
     with col_a:
-        st.metric(label="🕓 Predicted Cultivation Days", value=f"{prediction[0]:.0f} days")
-        st.metric(label="🌾 Total Nitrogen (N)", value=f"{prediction[1]:.2f}")
-        st.metric(label="🌻 Total Phosphorus (P)", value=f"{prediction[2]:.2f}")
+        st.metric("🕓 Predicted Cultivation Days", f"{prediction[0]:.0f} days")
+        st.metric("🌾 Total Nitrogen (N)", f"{prediction[1]:.2f}")
+        st.metric("🌻 Total Phosphorus (P)", f"{prediction[2]:.2f}")
 
     with col_b:
-        st.metric(label="🍃 Total Potassium (K)", value=f"{prediction[3]:.2f}")
-        st.metric(label="💧 Total Calcium (Ca)", value=f"{prediction[4]:.2f}")
-        st.metric(label="🌼 Total Magnesium (Mg)", value=f"{prediction[5]:.2f}")
+        st.metric("🍃 Total Potassium (K)", f"{prediction[3]:.2f}")
+        st.metric("💧 Total Calcium (Ca)", f"{prediction[4]:.2f}")
+        st.metric("🌼 Total Magnesium (Mg)", f"{prediction[5]:.2f}")
 
     # ---------- NUTRIENT BAR CHART ----------
+    st.subheader("📈 Nutrient Requirement Chart")
+
     nutrients = ["N", "P", "K", "Ca", "Mg"]
     values = prediction[1:]
 
-    st.subheader("📈 Nutrient Requirement Chart")
-
-    fig, ax = plt.subplots(figsize=(6, 4))
-    bars = ax.bar(nutrients, values, color=["#81C784", "#AED581", "#FFD54F", "#4FC3F7", "#BA68C8"])
-    ax.set_title("Predicted Nutrient Requirements", fontsize=13)
+    fig, ax = plt.subplots()
+    ax.bar(nutrients, values)
     ax.set_xlabel("Nutrients")
     ax.set_ylabel("Total Amount (relative units)")
+    ax.set_title("Predicted Nutrient Requirements")
 
-    for bar in bars:
-        yval = bar.get_height()
-        ax.text(bar.get_x() + 0.1, yval + 0.05, f"{yval:.2f}", fontsize=9)
+    for i, v in enumerate(values):
+        ax.text(i, v, f"{v:.2f}", ha="center", va="bottom")
 
     st.pyplot(fig)
 
     # ---------- SMART RECOMMENDATIONS ----------
     st.header("💡 Smart Recommendations")
 
-    if "tomato" in plant_type.lower():
-        if "vegetative" in growth_stage.lower():
+    plant = plant_type.lower()
+    stage = growth_stage.lower()
+
+    if "tomato" in plant:
+        if "vegetative" in stage:
             rec = "Increase nitrogen slightly for leaf growth and maintain temperature around 28°C."
-        elif "flowering" in growth_stage.lower():
+        elif "flowering" in stage:
             rec = "Increase potassium and calcium for better fruit set and firmness."
         else:
             rec = "Maintain balanced NPK and avoid excess humidity."
-    elif "chilli" in plant_type.lower():
+    elif "chilli" in plant:
         rec = "Keep humidity near 60% and ensure high potassium during flowering."
-    elif "cucumber" in plant_type.lower():
+    elif "cucumber" in plant:
         rec = "Maintain high humidity (70–80%) and balanced NPK levels."
-    elif "brinjal" in plant_type.lower():
-        rec = "Slightly higher nitrogen in early stage; increase potassium during fruiting."
-    elif "bitter" in plant_type.lower():
+    elif "brinjal" in plant:
+        rec = "Use higher nitrogen in early stages; increase potassium during fruiting."
+    elif "bitter" in plant:
         rec = "Ensure ample nitrogen and train vines properly to improve airflow."
     else:
         rec = "Maintain optimal nutrient balance and adjust light intensity to 20k–25k lux."
@@ -119,3 +128,4 @@ if st.button("🔍 Predict Results"):
 # ---------- FOOTER ----------
 st.markdown("---")
 st.caption("AI-Powered Smart Hydroponics 🌱")
+
